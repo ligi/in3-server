@@ -13,7 +13,6 @@ contract ServerRegistry {
 
     struct Web3Server {
         string url;  // the url of the server
-        address owner; // the owner, which is also the key to sign blockhashes
         uint deposit; // stored deposit
         uint props; // a list of properties-flags representing the capabilities of the server
 
@@ -22,26 +21,19 @@ contract ServerRegistry {
         address unregisterCaller; // address of the caller requesting the unregister
     }
     
-    Web3Server[] public servers;
-
-    function totalServers() public constant returns (uint)  {
-        return servers.length;
-    }
+    mapping(address => Web3Server) servers;
 
     /// register a new Server with the sender as owner    
     function registerServer(string _url, uint _props) public payable {
-        // make sure this url and also this owner was not registered before.
-        var hash = keccak256(_url);
-        for (uint i=0;i<servers.length;i++) 
-            require(keccak256(servers[i].url)!=hash && servers[i].owner!=msg.sender);
-
+        // make sure this this owner was not registered before.
+        require (servers[msg.sender].url[0] == 0);
+        
         // create new Webserver
         Web3Server memory m;
         m.url = _url;
         m.props = _props;
-        m.owner = msg.sender;
         m.deposit = msg.value;
-        servers.push(m);
+        servers[msg.sender] = m;
         LogServerRegistered(_url, _props, msg.sender,msg.value);
     }
 
@@ -54,12 +46,12 @@ contract ServerRegistry {
     ///    in this case he needs to pay a small deposit, which he will lose 
     //       if the owner become active again 
     //       or the caller will receive 20% of the deposit in case the owner does not react.
-    function requestUnregisteringServer(uint _serverIndex) payable public {
-        var server = servers[_serverIndex];
+    function requestUnregisteringServer(address _owner) payable public {
+        var server = servers[_owner];
         // this can only be called if nobody requested it before
         require(server.unregisterCaller==address(0x0));
 
-        if (server.unregisterCaller == server.owner) 
+        if (server.unregisterCaller == _owner) 
            server.unregisterTime = now + 1 hours;
         else {
             server.unregisterTime = now + 28 days; // 28 days are always good ;-) 
@@ -67,73 +59,71 @@ contract ServerRegistry {
             require(msg.value==unregisterDeposit);
         }
         server.unregisterCaller = msg.sender;
-        LogServerUnregisterRequested(server.url, server.owner, msg.sender );
+        LogServerUnregisterRequested(server.url, _owner, msg.sender );
     }
     
-    function confirmUnregisteringServer(uint _serverIndex) public {
-        var server = servers[_serverIndex];
+    function confirmUnregisteringServer(address _owner) public {
+        var server = servers[_owner];
         // this can only be called if somebody requested it before
         require(server.unregisterCaller!=address(0x0) && server.unregisterTime < now);
 
         var payBackOwner = server.deposit;
-        if (server.unregisterCaller != server.owner) {
+        if (server.unregisterCaller != _owner) {
             payBackOwner -= server.deposit/5;  // the owner will only receive 80% of his deposit back.
             server.unregisterCaller.transfer( unregisterDeposit + server.deposit - payBackOwner );
         }
 
         if (payBackOwner>0)
-            server.owner.transfer( payBackOwner );
+            _owner.transfer( payBackOwner );
 
-        removeServer(_serverIndex);
+        removeServer(_owner);
     }
 
-    function cancelUnregisteringServer(uint _serverIndex) public {
-        var server = servers[_serverIndex];
+    function cancelUnregisteringServer(address _owner) public {
+        var server = servers[_owner];
 
         // this can only be called by the owner and if somebody requested it before
-        require(server.unregisterCaller!=address(0) &&  server.owner == msg.sender);
+        require(server.unregisterCaller != address(0) && _owner == msg.sender);
 
         // if this was requested by somebody who does not own this server,
         // the owner will get his deposit
-        if (server.unregisterCaller != server.owner) 
-            server.owner.transfer( unregisterDeposit );
+        if (server.unregisterCaller != _owner) 
+            _owner.transfer( unregisterDeposit );
 
         server.unregisterCaller = address(0);
         server.unregisterTime = 0;
         
-        LogServerUnregisterCanceled(server.url, server.owner);
+        LogServerUnregisterCanceled(server.url, _owner);
     }
 
 
-    function convict(uint _serverIndex, bytes32 _blockhash, uint _blocknumber, uint8 _v, bytes32 _r, bytes32 _s) public {
+    function convict(address _owner, bytes32 _blockhash, uint _blocknumber, uint8 _v, bytes32 _r, bytes32 _s) public {
         // if the blockhash is correct you cannot convict the server
         require(block.blockhash(_blocknumber) != _blockhash);
 
         // make sure the hash was signed by the owner of the server
-        require(ecrecover(keccak256(_blockhash, _blocknumber), _v, _r, _s) == servers[_serverIndex].owner);
+        require(ecrecover(keccak256(_blockhash, _blocknumber), _v, _r, _s) == _owner);
 
         // remove the deposit
-        if (servers[_serverIndex].deposit>0) {
-            var payout = servers[_serverIndex].deposit/2;
+        if (servers[_owner].deposit>0) {
+            var payout = servers[_owner].deposit/2;
             // send 50% to the caller of this function
             msg.sender.transfer(payout);
 
             // and burn the rest by sending it to the 0x0-address
-            address(0).transfer(servers[_serverIndex].deposit-payout);
+            address(0).transfer(servers[_owner].deposit-payout);
         }
 
-        LogServerConvicted(servers[_serverIndex].url, servers[_serverIndex].owner );
-        removeServer(_serverIndex);
+        LogServerConvicted(servers[_owner].url, _owner );
+        removeServer(_owner);
 
     }
     
     // internal helpers
     
-    function removeServer(uint _serverIndex) internal {
-        LogServerRemoved(servers[_serverIndex].url, servers[_serverIndex].owner );
-        uint length = servers.length;
-        Web3Server memory m = servers[length - 1];
-        servers[_serverIndex] = m;
-        servers.length--;
+    function removeServer(address _owner) internal {
+        LogServerRemoved(servers[_owner].url, s_owner );
+        Web3Server memory m;
+        servers[_owner] = m:
     }
 }
