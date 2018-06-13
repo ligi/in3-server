@@ -30,11 +30,6 @@ contract ServerRegistry {
 
     /// register a new Server with the sender as owner    
     function registerServer(string _url, uint _props) public payable {
-        // make sure this url and also this owner was not registered before.
-        var hash = keccak256(_url);
-        for (uint i=0;i<servers.length;i++) 
-            require(keccak256(servers[i].url)!=hash && servers[i].owner!=msg.sender);
-
         // create new Webserver
         Web3Server memory m;
         m.url = _url;
@@ -43,6 +38,13 @@ contract ServerRegistry {
         m.deposit = msg.value;
         servers.push(m);
         LogServerRegistered(_url, _props, msg.sender,msg.value);
+    }
+
+    function removeDuplicates(uint _index1, uint _index2) {
+        require(_index1 < _index2);
+        if (keccak256(servers[_index1].url) == keccak256(servers[_index2].url)) {
+            removeServer(_index2);
+        }
     }
 
     /// this should be called before unregistering a server.
@@ -57,14 +59,14 @@ contract ServerRegistry {
     function requestUnregisteringServer(uint _serverIndex) payable public {
         var server = servers[_serverIndex];
         // this can only be called if nobody requested it before
-        require(server.unregisterCaller==address(0x0));
+        require(server.unregisterCaller == address(0x0));
 
         if (server.unregisterCaller == server.owner) 
            server.unregisterTime = now + 1 hours;
         else {
             server.unregisterTime = now + 28 days; // 28 days are always good ;-) 
             // the requester needs to pay the unregisterDeposit in order to spam-protect the server
-            require(msg.value==unregisterDeposit);
+            require(msg.value == unregisterDeposit);
         }
         server.unregisterCaller = msg.sender;
         LogServerUnregisterRequested(server.url, server.owner, msg.sender );
@@ -73,7 +75,7 @@ contract ServerRegistry {
     function confirmUnregisteringServer(uint _serverIndex) public {
         var server = servers[_serverIndex];
         // this can only be called if somebody requested it before
-        require(server.unregisterCaller!=address(0x0) && server.unregisterTime < now);
+        require(server.unregisterCaller != address(0x0) && server.unregisterTime < now);
 
         var payBackOwner = server.deposit;
         if (server.unregisterCaller != server.owner) {
@@ -81,7 +83,7 @@ contract ServerRegistry {
             server.unregisterCaller.transfer( unregisterDeposit + server.deposit - payBackOwner );
         }
 
-        if (payBackOwner>0)
+        if (payBackOwner > 0)
             server.owner.transfer( payBackOwner );
 
         removeServer(_serverIndex);
@@ -91,7 +93,7 @@ contract ServerRegistry {
         var server = servers[_serverIndex];
 
         // this can only be called by the owner and if somebody requested it before
-        require(server.unregisterCaller!=address(0) &&  server.owner == msg.sender);
+        require(server.unregisterCaller != address(0) && server.owner == msg.sender);
 
         // if this was requested by somebody who does not own this server,
         // the owner will get his deposit
@@ -113,8 +115,8 @@ contract ServerRegistry {
         require(ecrecover(keccak256(_blockhash, _blocknumber), _v, _r, _s) == servers[_serverIndex].owner);
 
         // remove the deposit
-        if (servers[_serverIndex].deposit>0) {
-            var payout = servers[_serverIndex].deposit/2;
+        if (servers[_serverIndex].deposit > 0) {
+            var payout = servers[_serverIndex].deposit / 2;
             // send 50% to the caller of this function
             msg.sender.transfer(payout);
 
